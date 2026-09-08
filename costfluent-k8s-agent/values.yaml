@@ -1,0 +1,122 @@
+# Costfluent Kubernetes Agent Helm Values
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/costfluent/k8s-agent
+  tag: ""  # Defaults to chart appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Agent configuration
+agent:
+  # Required: Costfluent API token (set via --set or external secret)
+  token: ""
+  # Required: Unique cluster identifier from Costfluent
+  clusterId: ""
+  # Display name for the cluster
+  clusterName: ""
+
+  # API endpoint
+  apiEndpoint: "https://api.costfluent.com"
+
+  # Scraping configuration
+  pollingInterval: 60        # Seconds between metric scrapes (5, 10, 15, 30, 60)
+  reportingInterval: 3600    # Seconds between API reports (default: 1 hour)
+  heartbeatInterval: 300     # Seconds between heartbeats (default: 5 minutes)
+
+  # Namespace filtering
+  namespaceInclude: []       # Empty = all namespaces
+  namespaceExclude:          # Excluded by default
+    - kube-system
+    - kube-public
+
+  # Metadata collection
+  # Off by default: annotations often carry internal configuration, so none are sent unless you
+  # ask for them. To allocate cost by annotation, turn this on AND name the prefixes you want.
+  collectAnnotations: false
+  allowedAnnotations: []     # Prefixes to collect, e.g. ["team.example.com/"]. Empty with
+                             # collectAnnotations true means every annotation, up to maxAnnotations.
+  maxAnnotations: 10
+  maxAnnotationLength: 100
+  collectNamespaceLabels: true
+
+  # On-prem pricing annotation keys
+  pricingAnnotations:
+    cpuHourlyRate: "costfluent.com/vcpu-hourly-rate"
+    ramGbHourlyRate: "costfluent.com/ram-gb-hourly-rate"
+    gpuHourlyRate: "costfluent.com/gpu-hourly-rate"
+    storageGbHourlyRate: "costfluent.com/storage-gb-hourly-rate"
+
+  # Logging
+  logLevel: info    # debug, info, warn, error
+  logFormat: json   # json, console
+
+# Use existing secret for token instead of creating new one
+existingSecret:
+  enabled: false
+  name: ""
+  tokenKey: "token"
+
+# Resource limits
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Persistence for buffering reports during outages
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+# Service account
+serviceAccount:
+  create: true
+  name: costfluent-agent
+  annotations: {}
+
+# Prometheus metrics exposure
+metrics:
+  enabled: true
+  port: 9010
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# Pod configuration
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Pod security
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Pod annotations
+podAnnotations: {}
+
+# Priority class
+priorityClassName: ""
+
+# Topology spread constraints
+topologySpreadConstraints: []
