@@ -1,0 +1,21 @@
+apiVersion: v2
+name: costfluent-k8s-agent
+description: Costfluent Kubernetes Agent for container cost tracking
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - kubernetes
+  - cost
+  - finops
+  - monitoring
+  - observability
+home: https://costfluent.com
+# The agent itself is closed source, so the only source there is to point at is the chart's own.
+# The previous entry named a repository that does not exist, which in a published chart is a dead
+# link a customer clicks.
+sources:
+  - https://github.com/costfluent/helm-charts
+maintainers:
+  - name: Costfluent
+    email: support@costfluent.com
