@@ -1,0 +1,27 @@
+apiVersion: v1
+entries:
+  costfluent-k8s-agent:
+  - apiVersion: v2
+    appVersion: 0.2.1
+    created: "2026-09-23T15:51:23.547330418Z"
+    description: Reports Kubernetes usage to Costfluent for cost allocation by cluster,
+      namespace and label
+    digest: 03fbc90a3733b4f3679fc03e61ad7429e8222c913f71e945c43cdab42b2adbd3
+    home: https://docs.costfluent.com/connect/kubernetes
+    icon: https://costfluent.com/favicon/favicon.svg
+    keywords:
+    - kubernetes
+    - cost
+    - finops
+    maintainers:
+    - email: support@costfluent.com
+      name: Costfluent
+    name: costfluent-k8s-agent
+    sources:
+    - https://github.com/costfluent/helm-charts
+    - https://github.com/costfluent/k8s-agent
+    type: application
+    urls:
+    - https://github.com/costfluent/helm-charts/releases/download/v0.2.1/costfluent-k8s-agent-0.2.1.tgz
+    version: 0.2.1
+generated: "2026-09-23T15:51:23.546316556Z"
