@@ -60,23 +60,30 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Create the name of the secret containing the token
+The Secret holding the token: the named one, or the chart's own when agent.token is set.
 */}}
 {{- define "costfluent-agent.secretName" -}}
-{{- if .Values.existingSecret.enabled }}
-{{- .Values.existingSecret.name }}
-{{- else }}
-{{- include "costfluent-agent.fullname" . }}
-{{- end }}
+{{- if .Values.agent.secret.name -}}
+{{- .Values.agent.secret.name -}}
+{{- else if .Values.agent.token -}}
+{{- include "costfluent-agent.fullname" . -}}
+{{- else -}}
+{{- required "set agent.token, or agent.secret.name for an existing Secret holding the token" "" -}}
+{{- end -}}
 {{- end }}
 
-{{/*
-Get the token key in the secret
-*/}}
-{{- define "costfluent-agent.secretTokenKey" -}}
-{{- if .Values.existingSecret.enabled }}
-{{- .Values.existingSecret.tokenKey }}
+{{- define "costfluent-agent.secretKey" -}}
+{{- if .Values.agent.secret.name -}}
+{{- .Values.agent.secret.key | default "token" -}}
 {{- else -}}
 token
+{{- end -}}
 {{- end }}
+
+{{- define "costfluent-agent.dataDir" -}}
+{{- if .Values.persist -}}
+{{- .Values.persist.mountPath | default "/var/lib/costfluent" -}}
+{{- else -}}
+/var/lib/costfluent
+{{- end -}}
 {{- end }}

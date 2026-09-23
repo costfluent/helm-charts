@@ -1,99 +1,34 @@
-# Costfluent Helm Charts
+# Costfluent Helm charts
 
-Official Helm charts for deploying Costfluent components to Kubernetes.
+Helm charts for running Costfluent components in Kubernetes. The repository is served from this
+repository's GitHub Pages site.
 
-## Available Charts
+| Chart | What it installs |
+|---|---|
+| [costfluent-k8s-agent](./costfluent-k8s-agent) | The agent that reports a cluster's resource usage to Costfluent for cost allocation |
 
-| Chart | Description | Version |
-|-------|-------------|---------|
-| [costfluent-k8s-agent](./costfluent-k8s-agent) | Kubernetes cost metrics agent | 0.1.0 |
+## Install the Kubernetes agent
 
-## Quick Start
-
-### Add Repository
+Create an organization API token in Costfluent under **Settings**, **API tokens**, with only the
+**Report Kubernetes usage** capability, pick a cluster ID, and install:
 
 ```bash
 helm repo add costfluent https://costfluent.github.io/helm-charts
-helm repo update
+helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --install --create-namespace \
+  --set agent.token=$COSTFLUENT_API_TOKEN,agent.clusterID=$CLUSTER_ID
 ```
 
-### Install Agent
+The cluster registers itself on its first report, a few minutes later. The
+[chart README](./costfluent-k8s-agent/README.md) lists every value and exactly what the agent reads
+and sends; the guide is at <https://docs.costfluent.com/connect/kubernetes>.
 
-```bash
-# Get token from Costfluent UI: Settings → Integrations → Kubernetes → Add Cluster
+## Releases
 
-helm upgrade costfluent-agent costfluent/costfluent-k8s-agent \
-  --install \
-  --namespace costfluent \
-  --create-namespace \
-  --set agent.token=cf_k8s_xxxxx \
-  --set agent.clusterId=cl_xxxxx \
-  --set agent.clusterName=production
-```
-
-### Verify Installation
-
-```bash
-# Check pod status
-kubectl -n costfluent get pods
-
-# View logs
-kubectl -n costfluent logs -l app.kubernetes.io/name=costfluent-k8s-agent -f
-```
-
-## Charts
-
-### costfluent-k8s-agent
-
-Deploys the Costfluent Kubernetes agent for container cost tracking.
-
-**Features:**
-- Container CPU/memory metrics via metrics-server
-- Pod metadata collection (labels, annotations, controllers)
-- Node capacity and pricing information
-- On-prem pricing via node annotations
-- Spot/preemptible instance detection
-- Hourly batch reporting
-- Offline buffering with PV
-
-See [costfluent-k8s-agent/README.md](./costfluent-k8s-agent/README.md) for details.
-
-## Development
-
-### Local Testing
-
-```bash
-# Lint chart
-helm lint ./costfluent-k8s-agent
-
-# Template without installing
-helm template costfluent-agent ./costfluent-k8s-agent \
-  --set agent.token=test \
-  --set agent.clusterId=test
-
-# Install locally
-helm upgrade costfluent-agent ./costfluent-k8s-agent \
-  --install \
-  --namespace costfluent \
-  --create-namespace \
-  --set agent.token=$COSTFLUENT_TOKEN \
-  --set agent.clusterId=$CLUSTER_ID
-```
-
-### Package Chart
-
-```bash
-helm package ./costfluent-k8s-agent
-```
-
-## Requirements
-
-- Kubernetes 1.24+
-- Helm 3.0+
-- metrics-server installed in cluster
+Each `vX.Y.Z` tag runs `.github/workflows/release.yml`, which checks that the chart's version is
+the tag and that its `appVersion` image exists, packages the chart onto the GitHub release, and
+merges it into `index.yaml` on the `gh-pages` branch.
 
 ## Support
 
-- Documentation: https://docs.costfluent.com/kubernetes
-- Issues: https://github.com/costfluent/helm-charts/issues
-- Email: support@costfluent.com
+- Documentation: <https://docs.costfluent.com/connect/kubernetes>
+- Issues: <https://github.com/costfluent/helm-charts/issues>
