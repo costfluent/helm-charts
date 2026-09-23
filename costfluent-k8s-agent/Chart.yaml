@@ -2,8 +2,8 @@ apiVersion: v2
 name: costfluent-k8s-agent
 description: Reports Kubernetes usage to Costfluent for cost allocation by cluster, namespace and label
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1
+appVersion: "0.2.1"
 keywords:
   - kubernetes
   - cost
