@@ -1,21 +1,18 @@
 apiVersion: v2
 name: costfluent-k8s-agent
-description: Costfluent Kubernetes Agent for container cost tracking
+description: Reports Kubernetes usage to Costfluent for cost allocation by cluster, namespace and label
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 0.2.0
+appVersion: "0.2.0"
 keywords:
   - kubernetes
   - cost
   - finops
-  - monitoring
-  - observability
-home: https://costfluent.com
-# The agent itself is closed source, so the only source there is to point at is the chart's own.
-# The previous entry named a repository that does not exist, which in a published chart is a dead
-# link a customer clicks.
+home: https://docs.costfluent.com/connect/kubernetes
+icon: https://costfluent.com/favicon/favicon.svg
 sources:
   - https://github.com/costfluent/helm-charts
+  - https://github.com/costfluent/k8s-agent
 maintainers:
   - name: Costfluent
     email: support@costfluent.com

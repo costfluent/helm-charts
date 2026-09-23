@@ -1,3 +1,10 @@
+{{- $clusterID := required "set agent.clusterID to name this cluster in Costfluent" .Values.agent.clusterID -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" $clusterID) -}}
+{{- fail "agent.clusterID must be letters, digits, '.', '_' or '-', at most 63 characters, starting with a letter or digit" -}}
+{{- end -}}
+{{- if gt (len .Values.agent.allowedAnnotations) 10 -}}
+{{- fail "agent.allowedAnnotations names more than 10 keys" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -6,7 +13,7 @@ metadata:
   labels:
     {{- include "costfluent-agent.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: 1
   serviceName: {{ include "costfluent-agent.fullname" . }}
   selector:
     matchLabels:
@@ -14,73 +21,96 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and .Values.agent.token (not .Values.agent.secret.name) }}
+        checksum/token: {{ .Values.agent.token | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
         {{- include "costfluent-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "costfluent-agent.serviceAccountName" . }}
-      {{- if .Values.priorityClassName }}
-      priorityClassName: {{ .Values.priorityClassName }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
       {{- end }}
+      terminationGracePeriodSeconds: 30
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: agent
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
           env:
             - name: COSTFLUENT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "costfluent-agent.secretName" . }}
-                  key: {{ include "costfluent-agent.secretTokenKey" . }}
-            - name: COSTFLUENT_CONFIG_PATH
-              value: /etc/costfluent
-          ports:
-            {{- if .Values.metrics.enabled }}
-            - name: metrics
-              containerPort: {{ .Values.metrics.port }}
-              protocol: TCP
+                  key: {{ include "costfluent-agent.secretKey" . }}
+            - name: COSTFLUENT_CLUSTER_ID
+              value: {{ $clusterID | quote }}
+            - name: COSTFLUENT_API_ENDPOINT
+              value: {{ .Values.agent.apiEndpoint | quote }}
+            - name: COSTFLUENT_POLLING_INTERVAL
+              value: {{ .Values.agent.pollingInterval | quote }}
+            - name: COSTFLUENT_NODE_ADDRESS_TYPES
+              value: {{ .Values.agent.nodeAddressTypes | quote }}
+            - name: COSTFLUENT_KUBE_SKIP_TLS_VERIFY
+              value: {{ .Values.agent.disableKubeTLSverify | quote }}
+            - name: COSTFLUENT_ALLOWED_LABELS
+              value: {{ join "," .Values.agent.allowedLabels | quote }}
+            - name: COSTFLUENT_ALLOWED_ANNOTATIONS
+              value: {{ join "," .Values.agent.allowedAnnotations | quote }}
+            - name: COSTFLUENT_COLLECT_NAMESPACE_LABELS
+              value: {{ .Values.agent.collectNamespaceLabels | quote }}
+            - name: COSTFLUENT_REPORT_HTTP_PROXY
+              value: {{ .Values.agent.reportHTTPProxy | quote }}
+            - name: COSTFLUENT_DATA_DIR
+              value: {{ include "costfluent-agent.dataDir" . | quote }}
+            - name: COSTFLUENT_METRICS_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: COSTFLUENT_LOG_LEVEL
+              value: {{ .Values.agent.logLevel | quote }}
+            {{- with .Values.agent.extraEnv }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.metrics.port }}
-            initialDelaySeconds: 10
+              port: http
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /readyz
-              port: {{ .Values.metrics.port }}
-            initialDelaySeconds: 5
+              port: http
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            - name: config
-              mountPath: /etc/costfluent
-              readOnly: true
-            {{- if .Values.persistence.enabled }}
             - name: data
-              mountPath: /data
-            {{- end }}
+              mountPath: {{ include "costfluent-agent.dataDir" . }}
+      {{- if not .Values.persist }}
       volumes:
-        - name: config
-          configMap:
-            name: {{ include "costfluent-agent.fullname" . }}
+        - name: data
+          emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -93,21 +123,17 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.topologySpreadConstraints }}
-      topologySpreadConstraints:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-  {{- if .Values.persistence.enabled }}
+  {{- if .Values.persist }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes:
-          - {{ .Values.persistence.accessMode }}
-        {{- if .Values.persistence.storageClass }}
-        storageClassName: {{ .Values.persistence.storageClass }}
+          - ReadWriteOnce
+        {{- with .Values.persist.storageClassName }}
+        storageClassName: {{ . }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.persistence.size }}
+            storage: {{ .Values.persist.size | default "1Gi" }}
   {{- end }}

@@ -1,41 +1,12 @@
-Costfluent Kubernetes Agent has been installed!
+The Costfluent agent reports cluster {{ .Values.agent.clusterID | quote }} to {{ .Values.agent.apiEndpoint }}.
 
-{{- if not .Values.agent.token }}
-WARNING: No agent token was provided. The agent will not be able to send reports.
-Please set the token using:
+The first report arrives about two minutes after the pod starts, and the cluster then shows under
+Settings > Integrations > Kubernetes. Costs appear after the next nightly processing run.
 
-  helm upgrade {{ .Release.Name }} costfluent/costfluent-k8s-agent \
-    --set agent.token=YOUR_TOKEN
+Check the agent:
 
-{{- end }}
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
 
-1. Check agent status:
-
-  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "costfluent-agent.name" . }}
-
-2. View agent logs:
-
-  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "costfluent-agent.name" . }} -f
-
-3. Agent configuration:
-
-  Cluster ID:       {{ .Values.agent.clusterId }}
-  Cluster Name:     {{ .Values.agent.clusterName }}
-  API Endpoint:     {{ .Values.agent.apiEndpoint }}
-  Polling Interval: {{ .Values.agent.pollingInterval }}s
-  Report Interval:  {{ .Values.agent.reportingInterval }}s
-
-4. For on-premise clusters, add pricing annotations to nodes:
-
-  kubectl annotate node <node-name> \
-    costfluent.com/vcpu-hourly-rate="0.05" \
-    costfluent.com/ram-gb-hourly-rate="0.007"
-
-{{- if .Values.metrics.enabled }}
-
-5. Prometheus metrics are available at:
-
-  http://{{ include "costfluent-agent.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.metrics.port }}/metrics
-{{- end }}
-
-For more information, visit: https://docs.costfluent.com/kubernetes
+For clusters without a cloud bill, set node rates with the costfluent.com/*-hourly-rate node
+annotations or in the cluster's settings. https://docs.costfluent.com/connect/kubernetes

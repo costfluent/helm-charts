@@ -1,4 +1,4 @@
-{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- if .Values.serviceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -6,7 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "costfluent-agent.labels" . | nindent 4 }}
-    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- with .Values.serviceMonitor.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
@@ -14,7 +14,7 @@ spec:
     matchLabels:
       {{- include "costfluent-agent.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: metrics
-      interval: {{ .Values.metrics.serviceMonitor.interval }}
+    - port: http
+      interval: {{ .Values.serviceMonitor.interval }}
       path: /metrics
 {{- end }}
