@@ -2,11 +2,17 @@
 # agent's README lists them.
 
 agent:
-  # An organization API token with the Report Kubernetes usage capability. Either set it here, and
-  # the chart creates a Secret for it, or name an existing Secret in agent.secret.
+  # The cluster token Costfluent shows once under Kubernetes, Clusters, Add cluster (or Mint token
+  # on the cluster). It names its cluster and may report only that one; the agent reads which at
+  # start and exits on a token every report would be refused with. Either set it here, and the
+  # chart creates a Secret for it, or name an existing Secret in agent.secret. A cluster token does
+  # not expire; it stops when revoked or when the account that minted it is disabled or deleted.
+  # Rotate it as the chart README's "Rotate the token" says. Changing this value rolls the pod; a
+  # changed agent.secret needs a restart of the StatefulSet.
   token: ""
-  # Required. Names this cluster in Costfluent: letters, digits, '.', '_' and '-', at most 63
-  # characters, starting with a letter or digit. The first report registers it.
+  # Optional. The cluster's ID in Costfluent, which the token already names; when set, the agent
+  # exits unless it is the token's cluster. Letters, digits, '.', '_' and '-', at most 63
+  # characters, starting with a letter or digit.
   clusterID: ""
   # An existing Secret holding the token, used instead of agent.token.
   secret:
@@ -29,14 +35,27 @@ agent:
   # Send each namespace's labels with its pods.
   collectNamespaceLabels: false
 
+  # Requests a second and the burst allowed to the Kubernetes API server. Most go to resolving
+  # each new ReplicaSet and Job to its Deployment or CronJob.
+  kubeAPIQPS: 50
+  kubeAPIBurst: 100
+  # The most kubelets scraped at once. The agent scrapes a twentieth of the cluster's nodes at
+  # once, at least 10, and never more than this.
+  scrapeConcurrency: 20
+  # How many resolved ReplicaSet and Job owners the agent remembers. Size it above the cluster's
+  # ReplicaSets and Jobs that run pods, or owners are fetched again each poll.
+  ownerCacheSize: 20000
+
   # A proxy for report traffic only, such as http://proxy.internal:3128.
   reportHTTPProxy: ""
   logLevel: info
   # Extra environment variables for the agent container.
   extraEnv: []
 
-# The buffer of unsent reports and the open window's snapshot live here. Set persist to null to
-# use an emptyDir, which loses both when the pod is rescheduled.
+# The buffer of unsent reports, the open window's snapshot, the agent's instance ID and the cluster
+# it read from its token live here. Set persist to null to use an emptyDir, which loses them when the
+# pod is rescheduled. size, storageClassName and persist: null are fixed at install, because an
+# upgrade cannot change a StatefulSet's volume claim.
 persist:
   mountPath: /var/lib/costfluent
   size: 1Gi

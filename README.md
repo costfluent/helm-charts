@@ -9,16 +9,17 @@ repository's GitHub Pages site.
 
 ## Install the Kubernetes agent
 
-Create an organization API token in Costfluent under **Settings**, **API tokens**, with only the
-**Report Kubernetes usage** capability, pick a cluster ID, and install:
+Add the cluster in Costfluent under **Settings**, **Integrations**, **Kubernetes**, **Add
+cluster**, copy the cluster token it shows once (the agent checks it at start and exits on one it
+cannot report with), and install:
 
 ```bash
 helm repo add costfluent https://costfluent.github.io/helm-charts
 helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --install --create-namespace \
-  --set agent.token=$COSTFLUENT_API_TOKEN,agent.clusterID=$CLUSTER_ID
+  --set agent.token=$COSTFLUENT_CLUSTER_TOKEN
 ```
 
-The cluster registers itself on its first report, a few minutes later. The
+The cluster's first report arrives a few minutes later. The
 [chart README](./costfluent-k8s-agent/README.md) lists every value and exactly what the agent reads
 and sends; the guide is at <https://docs.costfluent.com/connect/kubernetes>.
 

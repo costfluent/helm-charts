@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "costfluent-k8s-agent values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent", "image", "resources", "serviceAccount", "service", "serviceMonitor"],
+  "definitions": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "quantities": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number"] }
+    }
+  },
+  "properties": {
+    "global": {
+      "description": "Set by Helm when this chart is a dependency of another.",
+      "type": "object"
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret", "pollingInterval", "allowedLabels", "allowedAnnotations"],
+      "properties": {
+        "token": { "type": "string" },
+        "clusterID": { "type": "string" },
+        "secret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        },
+        "apiEndpoint": { "type": "string", "minLength": 1 },
+        "pollingInterval": {
+          "description": "Seconds between polls.",
+          "type": "integer",
+          "enum": [5, 10, 15, 30, 60]
+        },
+        "nodeAddressTypes": { "type": "string", "minLength": 1 },
+        "disableKubeTLSverify": { "type": "boolean" },
+        "allowedLabels": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "allowedAnnotations": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "collectNamespaceLabels": { "type": "boolean" },
+        "kubeAPIQPS": { "type": "integer", "minimum": 1 },
+        "kubeAPIBurst": { "type": "integer", "minimum": 1 },
+        "scrapeConcurrency": { "type": "integer", "minimum": 1 },
+        "ownerCacheSize": { "type": "integer", "minimum": 1 },
+        "reportHTTPProxy": { "type": "string" },
+        "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "persist": {
+      "description": "null mounts an emptyDir instead of claiming a volume.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "mountPath": { "type": "string" },
+        "size": { "type": "string" },
+        "storageClassName": { "type": "string" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "$ref": "#/definitions/quantities" },
+        "limits": { "$ref": "#/definitions/quantities" },
+        "claims": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "nodeSelector": { "$ref": "#/definitions/stringMap" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "podLabels": { "$ref": "#/definitions/stringMap" },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" },
+    "priorityClassName": { "type": "string" },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port"],
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "serviceMonitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "interval": { "type": "string" },
+        "labels": { "$ref": "#/definitions/stringMap" }
+      }
+    }
+  }
+}

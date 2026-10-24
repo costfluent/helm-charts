@@ -6,41 +6,75 @@ per agent. The full guide is at <https://docs.costfluent.com/connect/kubernetes>
 
 ## Prerequisites
 
-- Kubernetes 1.24 or later and Helm 3.
+- Kubernetes 1.31 or later and Helm 3.
 - Outbound HTTPS from the cluster to `https://api.costfluent.com`, directly or through
   `agent.reportHTTPProxy`.
 - No metrics-server: the agent reads each kubelet's `/metrics/resource` endpoint itself.
 
 ## Install
 
-1. **Create a token.** In Costfluent, open **Settings**, then **API tokens**, and create an
-   organization token with only the **Report Kubernetes usage** capability
-   (`ReportKubernetesUsage`). It allows the one upload the agent makes and nothing else; workspace
-   tokens are refused.
-2. **Pick a cluster ID.** It names the cluster in Costfluent and must be unique in your
-   organization: 1 to 63 letters, digits, `.`, `_` or `-`, starting with a letter or digit. The
-   first report registers it; there is nothing to create beforehand.
-3. **Install the chart.**
+1. **Add the cluster.** In Costfluent, open **Settings**, **Integrations**, **Kubernetes**, and
+   choose **Add cluster**. Give it a cluster ID, unique in your organization: 1 to 63 letters,
+   digits, `.`, `_` or `-`, starting with a letter or digit. Costfluent shows the cluster's token
+   once. It reports for that cluster and nothing else, so a leaked token can neither post for
+   another cluster nor read anything. **Mint token** on the cluster issues another.
+2. **Install the chart** with that token. The agent reads its cluster from the token at start and
+   exits with the reason in its log when the token is refused or is not a cluster token. It keeps
+   that cluster on its volume, so a later start while Costfluent is unreachable reports for it
+   rather than exiting until the API answers.
 
    ```bash
    helm repo add costfluent https://costfluent.github.io/helm-charts
    helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --install --create-namespace \
-     --set agent.token=$COSTFLUENT_API_TOKEN,agent.clusterID=$CLUSTER_ID
+     --set agent.token=$COSTFLUENT_CLUSTER_TOKEN
    ```
 
-The first report arrives about two minutes after the pod starts, and the cluster then shows under
-**Settings**, **Integrations**, **Kubernetes**.
+The first report arrives about two minutes after the pod starts, and the cluster's last report then
+shows under **Settings**, **Integrations**, **Kubernetes**.
 
 To keep the token out of Helm values, store it in a Secret and point the chart at it:
 
 ```bash
-kubectl -n costfluent create secret generic costfluent-token --from-literal=token=$COSTFLUENT_API_TOKEN
+kubectl -n costfluent create secret generic costfluent-token --from-literal=token=$COSTFLUENT_CLUSTER_TOKEN
 helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --install --create-namespace \
-  --set agent.clusterID=$CLUSTER_ID,agent.secret.name=costfluent-token
+  --set agent.secret.name=costfluent-token
 ```
 
-Rendering fails when `agent.clusterID` is missing or malformed, or when neither `agent.token` nor
-`agent.secret.name` is set.
+Rendering fails when a value is not one the chart knows, such as a misspelt key or a polling
+interval the agent does not support (`values.schema.json` lists them), when `agent.clusterID` is
+malformed, or when neither `agent.token` nor `agent.secret.name` is set.
+
+## Rotate the token
+
+A cluster token does not expire. It stops working when it is revoked, or when the account that
+minted it is disabled or deleted; the API then refuses it with 401, the agent stops sending and,
+after its next restart, exits at start. Replace it whenever it may have leaked, and before the
+account that minted it leaves.
+
+1. In Costfluent, open **Settings**, **Integrations**, **Kubernetes**, and choose **Mint token** on
+   the cluster's row. Earlier tokens keep working until revoked.
+2. Give it to the agent. With `agent.token`, upgrade the release with the new value. The chart
+   rewrites its Secret, and a checksum of the token on the pod template rolls the agent pod:
+
+   ```bash
+   helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --reuse-values \
+     --set agent.token=$NEW_COSTFLUENT_CLUSTER_TOKEN
+   ```
+
+   With `agent.secret.name`, replace the token in that Secret and restart the agent yourself. The
+   agent reads the token from its environment when it starts, so a changed Secret alone does not
+   reach a running pod:
+
+   ```bash
+   kubectl -n costfluent create secret generic costfluent-token \
+     --from-literal=token=$NEW_COSTFLUENT_CLUSTER_TOKEN --dry-run=client -o yaml | kubectl apply -f -
+   kubectl -n costfluent rollout restart statefulset/cfa-costfluent-k8s-agent
+   ```
+
+3. Check the agent's log for a clean start, then revoke the old token under **Settings**,
+   **API tokens**, with **Revoke token** on its row.
+
+Reports the agent buffered while the token was refused are sent once it runs with the new one.
 
 ## Values
 
@@ -49,9 +83,9 @@ Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent;
 
 | Value | Default | Purpose |
 |---|---|---|
-| `agent.token` | `""` | The organization API token. The chart stores it in a Secret it creates. Set it, or `agent.secret.name`. |
+| `agent.token` | `""` | The cluster token. The chart stores it in a Secret it creates, and changing it rolls the pod. Set it, or `agent.secret.name`. |
 | `agent.secret.name`, `agent.secret.key` | `""`, `token` | An existing Secret holding the token, used instead of `agent.token`. |
-| `agent.clusterID` | none, required | The cluster's ID in Costfluent. |
+| `agent.clusterID` | the token's cluster | Optional: when set, the agent exits unless it is the token's cluster. |
 | `agent.apiEndpoint` | `https://api.costfluent.com` | Where reports are sent. |
 | `agent.pollingInterval` | `60` | Seconds between usage samples: 5, 10, 15, 30 or 60. |
 | `agent.nodeAddressTypes` | `InternalIP,InternalDNS,Hostname,ExternalIP,ExternalDNS` | The node address types tried, in order, to reach each kubelet on port 10250. |
@@ -59,11 +93,14 @@ Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent;
 | `agent.allowedLabels` | `[]` | Pod label keys to send. Empty sends every pod label. |
 | `agent.allowedAnnotations` | `[]` | Pod annotation keys to send, at most 10. Empty sends none. |
 | `agent.collectNamespaceLabels` | `false` | Send each namespace's labels with its pods. |
+| `agent.kubeAPIQPS`, `agent.kubeAPIBurst` | `50`, `100` | Requests a second, and the burst, the agent may make to the Kubernetes API server. |
+| `agent.scrapeConcurrency` | `20` | The most kubelets scraped at once. The agent scrapes one at a time per 20 nodes, at least 10, up to this. |
+| `agent.ownerCacheSize` | `20000` | How many resolved ReplicaSet and Job owners the agent remembers; size it above the cluster's ReplicaSets and Jobs that run pods. |
 | `agent.reportHTTPProxy` | `""` | An HTTP proxy for report traffic only. |
 | `agent.logLevel` | `info` | `debug`, `info`, `warn` or `error`. |
 | `agent.extraEnv` | `[]` | Extra environment variables for the agent container. |
-| `persist.mountPath` | `/var/lib/costfluent` | Where the unsent-report buffer and the open window's snapshot live. |
-| `persist.size`, `persist.storageClassName` | `1Gi`, `""` | The volume claim. Set `persist` to `null` for an emptyDir, which loses both on rescheduling. |
+| `persist.mountPath` | `/var/lib/costfluent` | Where the unsent-report buffer, the open window's snapshot, the agent instance ID and the token's cluster live. |
+| `persist.size`, `persist.storageClassName` | `1Gi`, `""` | The volume claim. Set `persist` to `null` for an emptyDir, which loses all of them when the pod is rescheduled. See **Persistence**. |
 | `image.repository`, `image.tag`, `image.pullPolicy` | `ghcr.io/costfluent/k8s-agent`, the chart's `appVersion`, `IfNotPresent` | The agent image. |
 | `resources` | requests `50m` CPU and `64Mi`, limit `256Mi` | See **Sizing**. |
 | `nodeSelector`, `tolerations`, `affinity`, `priorityClassName` | empty | Scheduling. |
@@ -74,13 +111,39 @@ Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent;
 
 [values.yaml](./values.yaml) holds the rest, including the pod and container security contexts.
 
+### Persistence
+
+`persist.size` and `persist.storageClassName`, and whether `persist` is `null`, are fixed at
+install. They become the StatefulSet's volume claim template, which Kubernetes does not let an
+upgrade change, so a `helm upgrade` that changes them fails. To change them, uninstall, delete the
+claim as **Uninstall** shows, and install again; reports still buffered on the old volume are lost
+with it. `persist.mountPath` only says where the volume is mounted, and an upgrade may change it.
+
+With `persist: null` the agent's data lives in an emptyDir, which survives a container restart but
+not the pod being rescheduled or deleted. The cluster the agent kept from its token goes with it,
+so a rescheduled pod that cannot reach Costfluent at start exits until the API answers, unless
+`agent.clusterID` is set.
+
 ## Sizing
 
 The agent is one pod whatever the size of the cluster; its memory grows with the number of
 containers it tracks. Measured in a kind cluster with 61 pods at a 5 second polling interval, the
 agent's working set averaged 11.4 MiB with a 12.8 MiB peak, using under 0.001 CPU cores. The
-defaults (`64Mi` requested, `256Mi` limit) leave room for clusters many times that size; raise the
-limit if the pod is restarted for exceeding it.
+defaults (`64Mi` requested, `256Mi` limit) also hold a cluster at the limits below: the agent's load
+test (`make load`), against a fake API server and kubelets with 1,000 nodes and 50,000 realistic
+pods, peaks at 150 MiB of Go heap and sends a 52 MiB report, 1.2 MiB compressed. The chart passes
+the container's memory limit to the agent, which keeps its heap under three quarters of it; raise
+the limit if the pod is restarted for exceeding it.
+
+Costfluent collects clusters of up to 1,000 nodes and 50,000 pods in one hourly report. The 50,000
+counts every pod seen on a node during the hour, so short-lived pods such as Job runs count too, and
+a pod that moved node counts once per node. A pod carries at most 100 containers. The agent does not
+send a window over these limits: it logs that the cluster exceeds the size Costfluent collects and
+sets `costfluent_agent_over_supported_size` to 1.
+
+A label or annotation map carries at most 128 entries, with keys of at most 317 characters and
+values of at most 1,024. The agent keeps the first 128 entries in key order that fit, drops the
+rest, and counts them in `costfluent_agent_map_entries_dropped_total`.
 
 ## What the agent reads and sends
 
@@ -109,7 +172,7 @@ that closes about two minutes after start.
 | Report header | schema version, cluster ID, agent version, a random agent instance ID kept on the volume, window start and end |
 | Node identity and shape | name, provider ID, instance type, region, zone, spot flag, seconds observed, CPU, memory and GPU capacity, allocatable CPU and memory |
 | Node labels | every node label |
-| Node annotations | **only** `costfluent.com/vcpu-hourly-rate`, `costfluent.com/ram-gb-hourly-rate`, `costfluent.com/gpu-hourly-rate` and `costfluent.com/storage-gb-hourly-rate`; nothing else |
+| Node annotations | **only** `costfluent.com/vcpu-hourly-rate`, `costfluent.com/ram-gb-hourly-rate` and `costfluent.com/gpu-hourly-rate`; nothing else |
 | Pod identity | namespace, pod name, node name, controller kind and name |
 | Pod labels | every label, minus `pod-template-hash`, `controller-revision-hash` and `statefulset.kubernetes.io/pod-name`; only the keys in `agent.allowedLabels` when it is set |
 | Pod annotations | none, unless named in `agent.allowedAnnotations` (at most 10 keys, values cut to 100 characters) |
@@ -145,8 +208,18 @@ kubectl -n costfluent logs -l app.kubernetes.io/instance=cfa -f
 kubectl -n costfluent port-forward svc/cfa-costfluent-k8s-agent 9010:9010 && curl -s localhost:9010/metrics
 ```
 
-- **401 or 403 in the logs:** the token is wrong, revoked, a workspace token, or lacks **Report
-  Kubernetes usage**. Reports stay buffered, so fixing the token recovers them.
+- **401 or 403 in the logs, or "is not a cluster token":** the token is wrong, revoked, or not the
+  cluster's own token. At start the agent exits with the reason and the pod restarts; use **Mint
+  token** on the cluster, update the token, restart the pod, and the buffered reports are sent.
+- **"is not the cluster ... the API token belongs to":** `agent.clusterID` names another cluster
+  than the token's; remove it, or use that cluster's token.
+- **410 in the logs:** the cluster was deleted in Costfluent; add it again and install its new
+  token, or uninstall the agent.
+- **400 in the logs:** the report was refused, and the log names the reason. When it says the
+  cluster has more nodes or pods than Costfluent collects, contact support. When it says the node's
+  clock is ahead of Costfluent's, the report was refused as ending in the future: the agent keeps it
+  and retries until it is accepted, for up to 96 hours, and the log names the skew; fix the node's time sync (NTP).
+  Otherwise upgrade the agent.
 - **Kubelet scrapes failing with a certificate error:** the kubelets serve self-signed
   certificates; set `agent.disableKubeTLSverify=true`.
 - **Pod pending:** check the volume claim (`kubectl -n costfluent get pvc`) or set `persist=null`.
