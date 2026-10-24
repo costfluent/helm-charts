@@ -12,9 +12,11 @@ rules:
   - apiGroups: [""]
     resources: ["nodes/metrics"]
     verbs: ["get"]
+  {{- if .Values.agent.collectNamespaceLabels }}
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["list"]
+  {{- end }}
   # Resolving a pod's ReplicaSet to its Deployment and a Job to its CronJob.
   - apiGroups: ["apps"]
     resources: ["replicasets"]

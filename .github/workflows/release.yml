@@ -26,7 +26,7 @@ jobs:
       PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
 
@@ -56,9 +56,15 @@ jobs:
             helm package "$(dirname "$chart")" --destination .release
           done
 
-      # The packages are release assets; gh-pages holds only index.yaml, which points at them.
+      # The packages are release assets; gh-pages holds only index.yaml, which points at them. The
+      # tag's message is the reviewed release notes, and the tag is fetched again because checkout can
+      # leave an annotated tag lightweight, which has no message.
       - name: Create release
-        run: gh release create "$TAG" .release/*.tgz --title "$TAG" --notes "Bump to $TAG." --verify-tag
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git tag -l --format='%(contents:body)' "$TAG" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" .release/*.tgz --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
 
       - name: Merge the Helm repository index
         run: |

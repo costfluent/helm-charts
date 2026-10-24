@@ -1,5 +1,5 @@
-{{- $clusterID := required "set agent.clusterID to name this cluster in Costfluent" .Values.agent.clusterID -}}
-{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" $clusterID) -}}
+{{- $clusterID := .Values.agent.clusterID | default "" -}}
+{{- if and $clusterID (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" $clusterID)) -}}
 {{- fail "agent.clusterID must be letters, digits, '.', '_' or '-', at most 63 characters, starting with a letter or digit" -}}
 {{- end -}}
 {{- if gt (len .Values.agent.allowedAnnotations) 10 -}}
@@ -56,8 +56,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "costfluent-agent.secretName" . }}
                   key: {{ include "costfluent-agent.secretKey" . }}
+            {{- with $clusterID }}
             - name: COSTFLUENT_CLUSTER_ID
-              value: {{ $clusterID | quote }}
+              value: {{ . | quote }}
+            {{- end }}
             - name: COSTFLUENT_API_ENDPOINT
               value: {{ .Values.agent.apiEndpoint | quote }}
             - name: COSTFLUENT_POLLING_INTERVAL
@@ -72,6 +74,14 @@ spec:
               value: {{ join "," .Values.agent.allowedAnnotations | quote }}
             - name: COSTFLUENT_COLLECT_NAMESPACE_LABELS
               value: {{ .Values.agent.collectNamespaceLabels | quote }}
+            - name: COSTFLUENT_KUBE_API_QPS
+              value: {{ .Values.agent.kubeAPIQPS | quote }}
+            - name: COSTFLUENT_KUBE_API_BURST
+              value: {{ .Values.agent.kubeAPIBurst | quote }}
+            - name: COSTFLUENT_SCRAPE_CONCURRENCY
+              value: {{ .Values.agent.scrapeConcurrency | quote }}
+            - name: COSTFLUENT_OWNER_CACHE_SIZE
+              value: {{ .Values.agent.ownerCacheSize | quote }}
             - name: COSTFLUENT_REPORT_HTTP_PROXY
               value: {{ .Values.agent.reportHTTPProxy | quote }}
             - name: COSTFLUENT_DATA_DIR
@@ -80,6 +90,11 @@ spec:
               value: {{ .Values.service.port | quote }}
             - name: COSTFLUENT_LOG_LEVEL
               value: {{ .Values.agent.logLevel | quote }}
+            - name: COSTFLUENT_MEMORY_LIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: agent
+                  resource: limits.memory
             {{- with .Values.agent.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

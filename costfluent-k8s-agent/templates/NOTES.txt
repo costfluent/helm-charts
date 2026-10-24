@@ -1,7 +1,7 @@
-The Costfluent agent reports cluster {{ .Values.agent.clusterID | quote }} to {{ .Values.agent.apiEndpoint }}.
+The Costfluent agent reports the cluster its token names to {{ .Values.agent.apiEndpoint }}.
 
-The first report arrives about two minutes after the pod starts, and the cluster then shows under
-Settings > Integrations > Kubernetes. Costs appear after the next nightly processing run.
+The first report arrives about two minutes after the pod starts, and the cluster's last report then
+shows under Settings > Integrations > Kubernetes. Costs appear after the next nightly processing run.
 
 Check the agent:
 
