@@ -34,6 +34,8 @@ agent:
   allowedAnnotations: []
   # Send each namespace's labels with its pods.
   collectNamespaceLabels: false
+  # Send each bound volume's claim labels. Grants listing claims cluster-wide.
+  collectPVCLabels: false
 
   # Requests a second and the burst allowed to the Kubernetes API server. Most go to resolving
   # each new ReplicaSet and Job to its Deployment or CronJob.

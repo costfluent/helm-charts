@@ -84,7 +84,13 @@ jobs:
           helm repo index .release \
             --url "https://github.com/${{ github.repository }}/releases/download/$TAG" "${existing[@]}"
           cp .release/index.yaml .pages/index.yaml
-          git -C .pages add index.yaml
+          # The agent release this chart installs, beside the index and in its commit, so what
+          # Costfluent reads as the latest agent is what helm upgrade installs.
+          version="$(helm show chart costfluent-k8s-agent | sed -n 's/^version: *//p')"
+          app_version="$(helm show chart costfluent-k8s-agent | sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p')"
+          jq -n --arg version "$version" --arg app_version "$app_version" \
+            '{version: $version, app_version: $app_version}' > .pages/costfluent-k8s-agent.json
+          git -C .pages add index.yaml costfluent-k8s-agent.json
           git -C .pages commit --quiet -m "Index $TAG"
           git -C .pages push origin HEAD:gh-pages
           echo "Published $TAG to $PAGES_URL" >> "$GITHUB_STEP_SUMMARY"

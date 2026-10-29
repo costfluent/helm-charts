@@ -8,6 +8,19 @@ rules:
   - apiGroups: [""]
     resources: ["nodes", "pods"]
     verbs: ["list", "watch"]
+  # Persistent volumes and their storage classes, to price each volume and give it to the pods
+  # mounting its claim.
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["list", "watch"]
+  {{- if .Values.agent.collectPVCLabels }}
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["list"]
+  {{- end }}
   # The kubelet's /metrics/resource endpoint, read on each node's secure port.
   - apiGroups: [""]
     resources: ["nodes/metrics"]

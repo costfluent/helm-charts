@@ -5,6 +5,32 @@
 {{- if gt (len .Values.agent.allowedAnnotations) 10 -}}
 {{- fail "agent.allowedAnnotations names more than 10 keys" -}}
 {{- end -}}
+{{- /*
+A claim no StorageClass can provision stays Pending, and the pod with it, before the agent can log
+why. Offline renders (helm template, Argo CD) get an empty map from lookup, with no items key, and
+pass. An upgrade cannot change an installed release's claim, which may already be bound, so only an
+install is checked.
+*/ -}}
+{{- if and .Release.IsInstall .Values.persist -}}
+{{- $classes := lookup "storage.k8s.io/v1" "StorageClass" "" "" -}}
+{{- if hasKey $classes "items" -}}
+{{- $named := .Values.persist.storageClassName | default "" -}}
+{{- $provisioned := false -}}
+{{- range $classes.items -}}
+{{- $annotations := .metadata.annotations | default dict -}}
+{{- if $named -}}
+{{- if eq .metadata.name $named -}}{{- $provisioned = true -}}{{- end -}}
+{{- else if or (eq (get $annotations "storageclass.kubernetes.io/is-default-class") "true") (eq (get $annotations "storageclass.beta.kubernetes.io/is-default-class") "true") -}}
+{{- $provisioned = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $provisioned) $named -}}
+{{- fail (printf "persist.storageClassName names StorageClass %q, which this cluster does not have, so the agent's volume claim would stay Pending: name one of its classes (kubectl get storageclass), or set persist=null for an emptyDir" $named) -}}
+{{- else if not $provisioned -}}
+{{- fail "this cluster has no default StorageClass, so the agent's volume claim would stay Pending: set persist.storageClassName to one of its classes (kubectl get storageclass), or persist=null for an emptyDir" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -74,6 +100,8 @@ spec:
               value: {{ join "," .Values.agent.allowedAnnotations | quote }}
             - name: COSTFLUENT_COLLECT_NAMESPACE_LABELS
               value: {{ .Values.agent.collectNamespaceLabels | quote }}
+            - name: COSTFLUENT_COLLECT_PVC_LABELS
+              value: {{ .Values.agent.collectPVCLabels | quote }}
             - name: COSTFLUENT_KUBE_API_QPS
               value: {{ .Values.agent.kubeAPIQPS | quote }}
             - name: COSTFLUENT_KUBE_API_BURST
