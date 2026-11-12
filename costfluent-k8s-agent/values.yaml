@@ -1,9 +1,9 @@
-# Costfluent Kubernetes agent. Every agent.* key sets one COSTFLUENT_* environment variable; the
-# agent's README lists them.
+# Costfluent Kubernetes agent. Every agent.* key sets one COSTFLUENT_* environment variable, a map
+# such as agent.secret through its keys together; the agent's README lists them.
 
 agent:
-  # The cluster token Costfluent shows once under Kubernetes, Clusters, Add cluster (or Mint token
-  # on the cluster). It names its cluster and may report only that one; the agent reads which at
+  # The cluster token Costfluent shows once under Settings, Integrations, Kubernetes, Add cluster
+  # (or New token in the cluster's row menu). It names its cluster and may report only that one; the agent reads which at
   # start and exits on a token every report would be refused with. Either set it here, and the
   # chart creates a Secret for it, or name an existing Secret in agent.secret. A cluster token does
   # not expire; it stops when revoked or when the account that minted it is disabled or deleted.
@@ -48,8 +48,20 @@ agent:
   # ReplicaSets and Jobs that run pods, or owners are fetched again each poll.
   ownerCacheSize: 20000
 
-  # A proxy for report traffic only, such as http://proxy.internal:3128.
+  # A proxy for report traffic only, such as http://proxy.internal:3128. Without credentials: a
+  # proxy that needs them is named in agent.reportHTTPProxySecret instead.
   reportHTTPProxy: ""
+  # An existing Secret holding the report proxy's URL, credentials included, used instead of
+  # agent.reportHTTPProxy.
+  reportHTTPProxySecret:
+    name: ""
+    key: ""
+  # PEM certificates the agent trusts for report traffic beside the public ones, for a proxy that
+  # re-signs TLS with its own CA: an existing ConfigMap or Secret, one of the two, and its key.
+  reportCABundle:
+    configMap: ""
+    secret: ""
+    key: ca.crt
   logLevel: info
   # Extra environment variables for the agent container.
   extraEnv: []
@@ -67,6 +79,9 @@ image:
   repository: ghcr.io/costfluent/k8s-agent
   # Defaults to the chart's appVersion.
   tag: ""
+  # sha256:<hex>. When set, the image is pulled by this digest and the tag is ignored. A released
+  # chart carries the digest of its appVersion image.
+  digest: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

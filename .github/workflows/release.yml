@@ -35,6 +35,7 @@ jobs:
           set -euo pipefail
           for chart in */Chart.yaml; do
             dir="$(dirname "$chart")"
+            bash scripts/release-feed.sh "$dir" >/dev/null
             version="$(helm show chart "$dir" | sed -n 's/^version: *//p')"
             app_version="$(helm show chart "$dir" | sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p')"
             repository="$(helm show values "$dir" | awk '/^image:/ { i = 1; next } /^[^[:space:]#]/ { i = 0 } i && $1 == "repository:" { print $2; exit }')"
@@ -48,49 +49,8 @@ jobs:
             fi
           done
 
-      - name: Package
+      - name: Release and index
         run: |
           set -euo pipefail
-          mkdir -p .release
-          for chart in */Chart.yaml; do
-            helm package "$(dirname "$chart")" --destination .release
-          done
-
-      # The packages are release assets; gh-pages holds only index.yaml, which points at them. The
-      # tag's message is the reviewed release notes, and the tag is fetched again because checkout can
-      # leave an annotated tag lightweight, which has no message.
-      - name: Create release
-        run: |
-          set -euo pipefail
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          git tag -l --format='%(contents:body)' "$TAG" > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" .release/*.tgz --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
-
-      - name: Merge the Helm repository index
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
-            git fetch origin gh-pages
-            git worktree add .pages origin/gh-pages
-          else
-            git worktree add --detach .pages
-            git -C .pages checkout --orphan gh-pages
-            git -C .pages rm -rf --quiet .
-          fi
-          existing=()
-          [ -f .pages/index.yaml ] && existing=(--merge .pages/index.yaml)
-          helm repo index .release \
-            --url "https://github.com/${{ github.repository }}/releases/download/$TAG" "${existing[@]}"
-          cp .release/index.yaml .pages/index.yaml
-          # The agent release this chart installs, beside the index and in its commit, so what
-          # Costfluent reads as the latest agent is what helm upgrade installs.
-          version="$(helm show chart costfluent-k8s-agent | sed -n 's/^version: *//p')"
-          app_version="$(helm show chart costfluent-k8s-agent | sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p')"
-          jq -n --arg version "$version" --arg app_version "$app_version" \
-            '{version: $version, app_version: $app_version}' > .pages/costfluent-k8s-agent.json
-          git -C .pages add index.yaml costfluent-k8s-agent.json
-          git -C .pages commit --quiet -m "Index $TAG"
-          git -C .pages push origin HEAD:gh-pages
+          bash scripts/release.sh "$TAG"
           echo "Published $TAG to $PAGES_URL" >> "$GITHUB_STEP_SUMMARY"

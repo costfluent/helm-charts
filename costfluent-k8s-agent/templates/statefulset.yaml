@@ -6,6 +6,26 @@
 {{- fail "agent.allowedAnnotations names more than 10 keys" -}}
 {{- end -}}
 {{- /*
+Values sit in the release, which anyone who can read its Secret reads, so proxy credentials belong in
+a Secret the chart only references. The refusal never prints the value, which would show them.
+*/ -}}
+{{- $proxy := .Values.agent.reportHTTPProxy | default "" -}}
+{{- $proxySecret := .Values.agent.reportHTTPProxySecret | default dict -}}
+{{- if regexMatch "^\\s*([A-Za-z][A-Za-z0-9+.-]*://)?[^/?#]*@" $proxy -}}
+{{- fail "agent.reportHTTPProxy carries credentials: put the proxy URL in a Secret and name it in agent.reportHTTPProxySecret" -}}
+{{- end -}}
+{{- if ne (empty $proxySecret.name) (empty $proxySecret.key) -}}
+{{- fail "agent.reportHTTPProxySecret needs both name and key: the Secret and its key holding the proxy URL" -}}
+{{- end -}}
+{{- if and $proxy $proxySecret.name -}}
+{{- fail "set agent.reportHTTPProxy or agent.reportHTTPProxySecret, not both" -}}
+{{- end -}}
+{{- $caBundle := .Values.agent.reportCABundle | default dict -}}
+{{- if and $caBundle.configMap $caBundle.secret -}}
+{{- fail "agent.reportCABundle names a ConfigMap and a Secret: name one of the two" -}}
+{{- end -}}
+{{- $caDir := "/etc/costfluent/report-ca" -}}
+{{- /*
 A claim no StorageClass can provision stays Pending, and the pod with it, before the agent can log
 why. Offline renders (helm template, Argo CD) get an empty map from lookup, with no items key, and
 pass. An upgrade cannot change an installed release's claim, which may already be bound, so only an
@@ -30,6 +50,14 @@ install is checked.
 {{- fail "this cluster has no default StorageClass, so the agent's volume claim would stay Pending: set persist.storageClassName to one of its classes (kubectl get storageclass), or persist=null for an emptyDir" -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- /*
+A number from a values file or --set-json is a float64 here, and quote prints a float64 of a million
+or more as 1e+06, which the agent refuses as not a whole number; --set passes an int64. toJson writes
+the float64 in digits, a fraction kept so the agent still refuses it.
+*/ -}}
+{{- define "costfluent-agent.number" -}}
+{{- if kindIs "float64" . -}}{{- toJson . | quote -}}{{- else -}}{{- quote . -}}{{- end -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -72,7 +100,11 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: agent
+          {{- if .Values.image.digest }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -89,7 +121,7 @@ spec:
             - name: COSTFLUENT_API_ENDPOINT
               value: {{ .Values.agent.apiEndpoint | quote }}
             - name: COSTFLUENT_POLLING_INTERVAL
-              value: {{ .Values.agent.pollingInterval | quote }}
+              value: {{ include "costfluent-agent.number" .Values.agent.pollingInterval }}
             - name: COSTFLUENT_NODE_ADDRESS_TYPES
               value: {{ .Values.agent.nodeAddressTypes | quote }}
             - name: COSTFLUENT_KUBE_SKIP_TLS_VERIFY
@@ -103,19 +135,36 @@ spec:
             - name: COSTFLUENT_COLLECT_PVC_LABELS
               value: {{ .Values.agent.collectPVCLabels | quote }}
             - name: COSTFLUENT_KUBE_API_QPS
-              value: {{ .Values.agent.kubeAPIQPS | quote }}
+              value: {{ include "costfluent-agent.number" .Values.agent.kubeAPIQPS }}
             - name: COSTFLUENT_KUBE_API_BURST
-              value: {{ .Values.agent.kubeAPIBurst | quote }}
+              value: {{ include "costfluent-agent.number" .Values.agent.kubeAPIBurst }}
             - name: COSTFLUENT_SCRAPE_CONCURRENCY
-              value: {{ .Values.agent.scrapeConcurrency | quote }}
+              value: {{ include "costfluent-agent.number" .Values.agent.scrapeConcurrency }}
             - name: COSTFLUENT_OWNER_CACHE_SIZE
-              value: {{ .Values.agent.ownerCacheSize | quote }}
+              value: {{ include "costfluent-agent.number" .Values.agent.ownerCacheSize }}
             - name: COSTFLUENT_REPORT_HTTP_PROXY
-              value: {{ .Values.agent.reportHTTPProxy | quote }}
+              {{- if $proxySecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $proxySecret.name | quote }}
+                  key: {{ $proxySecret.key | quote }}
+              {{- else }}
+              value: {{ $proxy | quote }}
+              {{- end }}
+            {{- if or $caBundle.configMap $caBundle.secret }}
+            - name: COSTFLUENT_REPORT_CA_FILE
+              value: {{ printf "%s/ca.crt" $caDir | quote }}
+            {{- end }}
+            - name: COSTFLUENT_KUBELET_SERVICE_ACCOUNT
+              value: {{ include "costfluent-agent.kubeletServiceAccountName" . | quote }}
+            - name: COSTFLUENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: COSTFLUENT_DATA_DIR
               value: {{ include "costfluent-agent.dataDir" . | quote }}
             - name: COSTFLUENT_METRICS_PORT
-              value: {{ .Values.service.port | quote }}
+              value: {{ include "costfluent-agent.number" .Values.service.port }}
             - name: COSTFLUENT_LOG_LEVEL
               value: {{ .Values.agent.logLevel | quote }}
             - name: COSTFLUENT_MEMORY_LIMIT
@@ -149,10 +198,32 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ include "costfluent-agent.dataDir" . }}
-      {{- if not .Values.persist }}
+            {{- if or $caBundle.configMap $caBundle.secret }}
+            - name: report-ca
+              mountPath: {{ $caDir }}
+              readOnly: true
+            {{- end }}
+      {{- if or (not .Values.persist) $caBundle.configMap $caBundle.secret }}
       volumes:
+        {{- if not .Values.persist }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- if $caBundle.configMap }}
+        - name: report-ca
+          configMap:
+            name: {{ $caBundle.configMap | quote }}
+            items:
+              - key: {{ $caBundle.key | quote }}
+                path: ca.crt
+        {{- else if $caBundle.secret }}
+        - name: report-ca
+          secret:
+            secretName: {{ $caBundle.secret | quote }}
+            items:
+              - key: {{ $caBundle.key | quote }}
+                path: ca.crt
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

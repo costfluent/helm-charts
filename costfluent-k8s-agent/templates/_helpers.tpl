@@ -60,6 +60,14 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+The account kubelets see: the agent mints a short-lived token for it and sends only that to each
+kubelet, so a kubelet it cannot verify gets no more than node metrics.
+*/}}
+{{- define "costfluent-agent.kubeletServiceAccountName" -}}
+{{- printf "%s-kubelet" (include "costfluent-agent.fullname" .) -}}
+{{- end }}
+
+{{/*
 The Secret holding the token: the named one, or the chart's own when agent.token is set.
 */}}
 {{- define "costfluent-agent.secretName" -}}

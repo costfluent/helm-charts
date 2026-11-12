@@ -17,7 +17,7 @@ per agent. The full guide is at <https://docs.costfluent.com/connect/kubernetes>
    choose **Add cluster**. Give it a cluster ID, unique in your organization: 1 to 63 letters,
    digits, `.`, `_` or `-`, starting with a letter or digit. Costfluent shows the cluster's token
    once. It reports for that cluster and nothing else, so a leaked token can neither post for
-   another cluster nor read anything. **Mint token** on the cluster issues another.
+   another cluster nor read anything. **New token** in the cluster's row menu issues another.
 2. **Install the chart** with that token. The agent reads its cluster from the token at start and
    exits with the reason in its log when the token is refused or is not a cluster token. It keeps
    that cluster on its volume, so a later start while Costfluent is unreachable reports for it
@@ -42,7 +42,11 @@ helm upgrade -n costfluent cfa costfluent/costfluent-k8s-agent --install --creat
 
 Rendering fails when a value is not one the chart knows, such as a misspelt key or a polling
 interval the agent does not support (`values.schema.json` lists them), when `agent.clusterID` is
-malformed, or when neither `agent.token` nor `agent.secret.name` is set.
+malformed, when `agent.reportHTTPProxy` carries credentials or is set beside
+`agent.reportHTTPProxySecret`, when that Secret's name or key is set without the other, when
+`agent.reportCABundle` names both a ConfigMap and a Secret, when
+`serviceAccount.name` is the kubelet account's name (**What the agent reads and sends**), or when
+neither `agent.token` nor `agent.secret.name` is set.
 
 ## Rotate the token
 
@@ -51,8 +55,8 @@ minted it is disabled or deleted; the API then refuses it with 401, the agent st
 after its next restart, exits at start. Replace it whenever it may have leaked, and before the
 account that minted it leaves.
 
-1. In Costfluent, open **Settings**, **Integrations**, **Kubernetes**, and choose **Mint token** on
-   the cluster's row. Earlier tokens keep working until revoked.
+1. In Costfluent, open **Settings**, **Integrations**, **Kubernetes**, and choose **New token** in
+   the cluster's row menu. Earlier tokens keep working until revoked.
 2. Give it to the agent. With `agent.token`, upgrade the release with the new value. The chart
    rewrites its Secret, and a checksum of the token on the pod template rolls the agent pod:
 
@@ -78,8 +82,8 @@ Reports the agent buffered while the token was refused are sent once it runs wit
 
 ## Values
 
-Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent; the
-[agent README](https://github.com/costfluent/k8s-agent#configuration) lists them.
+Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent, a map such as
+`agent.secret` through its keys together; the [agent README](https://github.com/costfluent/k8s-agent#configuration) lists them.
 
 | Value | Default | Purpose |
 |---|---|---|
@@ -97,12 +101,14 @@ Every `agent.*` value sets one `COSTFLUENT_*` environment variable on the agent;
 | `agent.kubeAPIQPS`, `agent.kubeAPIBurst` | `50`, `100` | Requests a second, and the burst, the agent may make to the Kubernetes API server. |
 | `agent.scrapeConcurrency` | `20` | The most kubelets scraped at once. The agent scrapes one at a time per 20 nodes, at least 10, up to this. |
 | `agent.ownerCacheSize` | `20000` | How many resolved ReplicaSet and Job owners the agent remembers; size it above the cluster's ReplicaSets and Jobs that run pods. |
-| `agent.reportHTTPProxy` | `""` | An HTTP proxy for report traffic only. |
+| `agent.reportHTTPProxy` | `""` | An HTTP proxy for report traffic only, without credentials: rendering fails on a URL with a user or password. |
+| `agent.reportHTTPProxySecret.name`, `agent.reportHTTPProxySecret.key` | `""`, `""` | An existing Secret and its key holding the report proxy's URL, credentials included, used instead of `agent.reportHTTPProxy`. Set both or neither. |
+| `agent.reportCABundle.configMap`, `agent.reportCABundle.secret`, `agent.reportCABundle.key` | `""`, `""`, `ca.crt` | An existing ConfigMap or Secret, one of the two, and its key holding PEM certificates the agent trusts for report traffic beside the public ones, for a proxy that re-signs TLS. Mounted read-only. |
 | `agent.logLevel` | `info` | `debug`, `info`, `warn` or `error`. |
 | `agent.extraEnv` | `[]` | Extra environment variables for the agent container. |
 | `persist.mountPath` | `/var/lib/costfluent` | Where the unsent-report buffer, the open window's snapshot, the agent instance ID and the token's cluster live. |
 | `persist.size`, `persist.storageClassName` | `1Gi`, `""` | The volume claim. Set `persist` to `null` for an emptyDir, which loses all of them when the pod is rescheduled. See **Persistence**. |
-| `image.repository`, `image.tag`, `image.pullPolicy` | `ghcr.io/costfluent/k8s-agent`, the chart's `appVersion`, `IfNotPresent` | The agent image. |
+| `image.repository`, `image.tag`, `image.digest`, `image.pullPolicy` | `ghcr.io/costfluent/k8s-agent`, the chart's `appVersion`, the released image's digest, `IfNotPresent` | The agent image. The digest wins over the tag, so what runs is what the release resolved; a mirror that keeps digests keeps it. Setting `image.tag` to another agent, or a mirror that changes digests, also needs `image.digest` set to `""` or to that image's digest. |
 | `resources` | requests `50m` CPU and `64Mi`, limit `256Mi` | See **Sizing**. |
 | `nodeSelector`, `tolerations`, `affinity`, `priorityClassName` | empty | Scheduling. |
 | `podLabels`, `podAnnotations` | `{}` | Added to the agent pod. |
@@ -169,13 +175,20 @@ whole wire contract.
 | Resource | Verbs | Why |
 |---|---|---|
 | `nodes`, `pods` | `list`, `watch` | Node shape and the pods running on each node. |
-| `nodes/metrics` | `get` | Each kubelet's `/metrics/resource` endpoint: container CPU and memory usage. |
 | `persistentvolumes`, `storageclasses` (storage.k8s.io) | `list`, `watch` | Each volume's size, class and cloud disk, to price it and give it to the pods mounting its claim. |
 | `persistentvolumeclaims` | `list` | Claim labels, only when `agent.collectPVCLabels` is true. |
 | `namespaces` | `list` | Namespace labels, only when `agent.collectNamespaceLabels` is true. |
 | `replicasets` (apps), `jobs` (batch) | `get` | Resolving a pod's ReplicaSet to its Deployment and a Job to its CronJob. |
 
 No write verbs, no `secrets`, no `configmaps`, no `nodes/proxy`.
+
+**Kubelet account** (`templates/kubelet-rbac.yaml`): the agent never sends its own token to a
+kubelet. The chart creates a second service account, named like the release's resources with
+`-kubelet` appended (`cfa-costfluent-k8s-agent-kubelet` for the install above), whose ClusterRole
+grants only `get` on `nodes/metrics`: each kubelet's `/metrics/resource` endpoint, container CPU and
+memory usage. A Role in the release namespace lets the agent `create` on `serviceaccounts/token`
+for that one account, by name, and for no other. The agent requests a token for it valid for an
+hour, renews it before it expires, and sends only that token to kubelets.
 
 **What leaves the cluster.** The agent posts one gzip JSON report per window to
 `{agent.apiEndpoint}/v1/kubernetes/reports`. Windows are UTC clock hours, except a first window
@@ -185,6 +198,7 @@ the array named before the colon.
 | Sent | Detail | Fields |
 |---|---|---|
 | Report header | schema version, cluster ID, agent version, a random agent instance ID kept on the volume, window start and end | `schema_version`, `cluster_id`, `agent_version`, `agent_instance_id`, `window_start`, `window_end` |
+| Unread nodes | for each reason (`tls`, `unreachable`, `unauthorized`, `other`), how many nodes seen in the window the agent could not read at any poll, so their usage is missing; no node name and no error text | `unscraped_nodes` |
 | Node identity and shape | name, provider ID, instance type, region, zone, spot flag, seconds observed, CPU and memory capacity, allocatable CPU and memory | `nodes[]`: `name`, `provider_id`, `instance_type`, `region`, `zone`, `spot`, `observed_seconds`, `capacity_cpu_cores`, `capacity_memory_bytes`, `allocatable_cpu_cores`, `allocatable_memory_bytes` |
 | Node GPUs | the capacity of each GPU resource of the families `nvidia.com/gpu`, `nvidia.com/gpu.shared`, `nvidia.com/mig-*` and `amd.com/gpu`, and **only** the GPU Feature Discovery labels `nvidia.com/mig.strategy`, `nvidia.com/gpu.product`, `nvidia.com/gpu.count`, `nvidia.com/gpu.replicas` and `nvidia.com/gpu.slices.gi`, sent apart from the node labels so their cap never drops them | `nodes[]`: `capacity_gpu`, `gpu_resources`, `gpu_labels` |
 | Node labels | every node label | `nodes[]`: `labels` |

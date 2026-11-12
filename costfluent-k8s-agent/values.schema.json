@@ -58,9 +58,28 @@
         "scrapeConcurrency": { "type": "integer", "minimum": 1, "maximum": 200 },
         "ownerCacheSize": { "type": "integer", "minimum": 100, "maximum": 1000000 },
         "reportHTTPProxy": {
-          "description": "Empty, or an http:// or https:// URL.",
+          "description": "Empty, or an http:// or https:// URL. A value with credentials, under any scheme or none, passes here so the template refuses it without printing it; the alternative after the last | is the template's own credentials pattern.",
           "type": "string",
-          "pattern": "^[^A-Za-z]*$|[Hh][Tt][Tt][Pp][Ss]?://"
+          "pattern": "^[^A-Za-z]*$|[Hh][Tt][Tt][Pp][Ss]?://|^\\s*([A-Za-z][A-Za-z0-9+.-]*://)?[^/?#]*@"
+        },
+        "reportHTTPProxySecret": {
+          "description": "An existing Secret's name and the key holding the proxy URL; both or neither.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        },
+        "reportCABundle": {
+          "description": "An existing ConfigMap or Secret, one of the two, and the key holding PEM certificates.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "configMap": { "type": "string" },
+            "secret": { "type": "string" },
+            "key": { "type": "string", "minLength": 1 }
+          }
         },
         "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
         "extraEnv": {
@@ -89,6 +108,11 @@
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
         "tag": { "type": "string" },
+        "digest": {
+          "description": "Empty, or the image's sha256 digest.",
+          "type": "string",
+          "pattern": "^(sha256:[0-9a-f]{64})?$"
+        },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
       }
     },
