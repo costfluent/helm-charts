@@ -1,0 +1,69 @@
+{{- $kubelet := include "costfluent-agent.kubeletServiceAccountName" . -}}
+{{- $agent := include "costfluent-agent.serviceAccountName" . -}}
+{{- if eq $agent $kubelet -}}
+{{- fail (printf "serviceAccount.name must not be %s, the account whose token the agent sends to kubelets" $kubelet) -}}
+{{- end -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $kubelet }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "costfluent-agent.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $kubelet }}
+  labels:
+    {{- include "costfluent-agent.labels" . | nindent 4 }}
+rules:
+  # The kubelet's /metrics/resource endpoint, read on each node's secure port.
+  - apiGroups: [""]
+    resources: ["nodes/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $kubelet }}
+  labels:
+    {{- include "costfluent-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $kubelet }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $kubelet }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $kubelet }}-token
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "costfluent-agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    resourceNames: [{{ $kubelet | quote }}]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $kubelet }}-token
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "costfluent-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $kubelet }}-token
+subjects:
+  - kind: ServiceAccount
+    name: {{ $agent }}
+    namespace: {{ .Release.Namespace }}

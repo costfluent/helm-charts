@@ -21,10 +21,6 @@ rules:
     resources: ["persistentvolumeclaims"]
     verbs: ["list"]
   {{- end }}
-  # The kubelet's /metrics/resource endpoint, read on each node's secure port.
-  - apiGroups: [""]
-    resources: ["nodes/metrics"]
-    verbs: ["get"]
   {{- if .Values.agent.collectNamespaceLabels }}
   - apiGroups: [""]
     resources: ["namespaces"]
